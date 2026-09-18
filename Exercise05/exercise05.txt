@@ -1,1 +1,74 @@
+Lab 5 - Exercise 5: Fibonacci with Task Parallelism
 
+Programs: fib_serial.c, fib_parallel.c
+Compiled with: gcc fib_serial.c -o fib_serial.o
+               gcc -fopenmp fib_parallel.c -o fib_parallel.o
+n = 30
+
+================================================================
+RESULTS
+================================================================
+Serial:              fib(30) = 832040   Time: 0.007932 seconds
+Parallel (2 threads): fib(30) = 832040   Time: 1.088510 seconds
+Parallel (4 threads): fib(30) = 832040   Time: 1.549530 seconds
+
+All three versions produce the correct result (832040), confirming
+that #pragma omp taskwait correctly forces each recursive call to wait
+for both its child tasks (fib(n-1) and fib(n-2)) to complete before
+computing and returning their sum.
+
+================================================================
+HOW THE TASK PARALLELISATION WORKS
+================================================================
+#pragma omp task marks each recursive call (fib(n-1) and fib(n-2)) as
+an independent unit of work that OpenMP's runtime can schedule onto
+any available thread, rather than forcing the calling thread to
+execute it immediately and sequentially. #pragma omp taskwait is
+essential: it makes the current invocation of fib() pause and wait
+until both of its spawned child tasks have actually finished, before
+it is safe to read i and j and compute i + j. Without taskwait, the
+function could return using uninitialised or incomplete values of i
+and j, since the child tasks might not have finished yet.
+
+In main(), #pragma omp single is used inside #pragma omp parallel to
+ensure only ONE thread makes the initial call to fib(n) - without
+this, every thread in the team would independently start the entire
+recursive computation from scratch, duplicating all the work rather
+than sharing it.
+
+================================================================
+WHY THE PARALLEL VERSION IS SLOWER, NOT FASTER
+================================================================
+This is a striking and important result: the parallel version was
+about 137x slower than the serial version at 2 threads, and 195x
+slower at 4 threads - despite computing the identical correct answer.
+
+The reason is task overhead. fib(30) makes approximately 2.7 million
+recursive calls in total, and the actual computation inside each call
+is trivially cheap (one comparison, one subtraction, one addition).
+The parallel version spawns a #pragma omp task for EVERY one of these
+2.7 million calls. Creating, scheduling, and synchronising a task has
+real, non-trivial overhead in the OpenMP runtime - and when that
+overhead is many times larger than the actual work being parallelised
+(a single arithmetic operation), the total overhead accumulated across
+millions of tiny tasks vastly outweighs any benefit from running
+different branches of the recursion concurrently.
+
+Going from 2 to 4 threads made performance even worse (1.09s -> 1.55s),
+rather than better. With more threads all competing to create,
+schedule, and complete tasks from the same shared task queue,
+contention over that queue increases, adding further overhead without
+any corresponding increase in useful parallel work - especially since
+the underlying hardware here still only has a limited number of real
+cores.
+
+Conclusion: task parallelism is only beneficial when each task
+represents a meaningful amount of work relative to the fixed cost of
+creating and scheduling a task. Naive recursive task-per-call
+parallelisation of a fine-grained recursive function like this
+Fibonacci implementation is a textbook example of over-parallelisation
+- the correct optimisation in practice is usually to only spawn tasks
+above a certain recursion depth or problem size threshold (a "cutoff"),
+and fall back to plain serial recursion below that threshold, so that
+tasks are only created when the work they represent is large enough to
+justify the overhead.
