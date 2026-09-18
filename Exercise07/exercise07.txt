@@ -1,0 +1,91 @@
+Lab 5 - Exercise 7: Area of the Mandelbrot Set
+
+Programs: mandelbrot_serial.c, mandelbrot_parallel.c
+Compiled with: gcc mandelbrot_serial.c -o mandelbrot_serial.o
+               gcc -fopenmp mandelbrot_parallel.c -o mandelbrot_parallel.o
+NPOINTS = 1000 (1,000,000 grid points total), MAXITER = 2000
+
+Method: A grid of NPOINTS x NPOINTS points is generated in a box of
+the complex plane containing the upper half of the Mandelbrot Set.
+Each point c is iterated using z = z^2 + c up to MAXITER times; if
+|z| > 2 at any point, the point is classified as outside the Set
+(diverges); if it survives all MAXITER iterations without exceeding
+that threshold, it is classified as inside the Set. The estimated area
+is the fraction of points inside the Set multiplied by the area of the
+sampled rectangle.
+
+Parallelisation approach (as specified in the lab sheet):
+- Started a parallel region before the main loop using #pragma omp
+  parallel for on the outermost (i) loop, so each thread handles a
+  contiguous range of i values.
+- numoutside (the count of points outside the Set) is declared with
+  reduction(+:numoutside), since every thread needs to safely
+  contribute to this shared counter without a data race.
+- j (the inner loop counter) is declared private(j), since each thread
+  needs its own independent inner loop index.
+- c (the complex number being tested) is declared inside the parallel
+  region, making it automatically private to each thread/iteration.
+
+================================================================
+CONFIGURATION 1: AWS EC2 t2.micro (1 vCPU)
+================================================================
+Serial:               Area = 1.51031250, outside = 731500  Time: 4.529712s
+Parallel, 1 thread:   Area = 1.51031250, outside = 731500  Time: 4.541774s
+Parallel, 2 threads:  Area = 1.51031250, outside = 731500  Time: 4.544730s
+Parallel, 3 threads:  Area = 1.51031250, outside = 731500  Time: 4.631282s
+Parallel, 4 threads:  Area = 1.51031250, outside = 731500  Time: 4.541371s
+
+================================================================
+CONFIGURATION 2: AWS EC2 t2.large (2 vCPUs)
+================================================================
+Parallel, 1 thread:   Area = 1.51031250, outside = 731500  Time: 4.535597s
+Parallel, 2 threads:  Area = 1.51031250, outside = 731500  Time: 3.865003s
+Parallel, 3 threads:  Area = 1.51031250, outside = 731500  Time: 2.712040s
+Parallel, 4 threads:  Area = 1.51031250, outside = 731500  Time: 2.387496s
+
+Speedup relative to 1 thread (t2.large):
+  2 threads: 1.17x
+  3 threads: 1.67x
+  4 threads: 1.90x
+
+================================================================
+CORRECTNESS
+================================================================
+Every single run - serial and parallel, at every thread count, on both
+instance types - produced the exact same result: Area = 1.51031250,
+731500 points outside the Set. This confirms the reduction(+:sum)
+clause correctly and consistently combines each thread's partial count
+with no race condition, regardless of how the i loop's iterations are
+distributed across threads.
+
+================================================================
+COMPARISON ACROSS THREAD COUNTS AND INSTANCE TYPES
+================================================================
+On t2.micro (1 vCPU), timing stayed essentially flat (~4.5s) across
+every thread count, with no meaningful speedup - consistent with the
+pattern seen throughout Lab 4: a single physical core cannot execute
+threads truly in parallel, only time-slice them, so adding threads
+provides no benefit.
+
+On t2.large (2 vCPUs), clear and consistent speedup was observed:
+1.17x at 2 threads, 1.67x at 3 threads, and 1.90x at 4 threads.
+Notably, speedup continued to improve even beyond 2 threads (the
+number of physical vCPUs available), unlike the uniform-workload Pi
+calculation in Lab 4, where performance plateaued once thread count
+exceeded the vCPU count. This is because the Mandelbrot workload is
+irregular: some grid points escape the iteration quickly (few
+iterations before |z| > 2), while points inside or near the Set run
+the full 2000 iterations before being classified. With an irregular,
+unevenly-timed workload like this, having more threads than physical
+cores can still help, because when one thread happens to finish its
+current point quickly, the OS scheduler can use the resulting idle
+core time to make progress on another thread's slower-running point,
+improving overall utilisation - something that a perfectly uniform
+workload (like Lab 4's Pi calculation, where every iteration takes
+equal time) cannot benefit from in the same way.
+
+================================================================
+NOTE ON RESOURCE CLEANUP
+================================================================
+The t2.large instance was stopped after completing this exercise to
+avoid unnecessary usage of the AWS Academy lab session's compute hours.
