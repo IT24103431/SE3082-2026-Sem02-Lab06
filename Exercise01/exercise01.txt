@@ -1,0 +1,44 @@
+Lab 5 - Exercise 1: #pragma omp barrier
+
+Program: barrier.c
+Compiled with: gcc -fopenmp barrier.c -o barrier.o
+Run with: OMP_NUM_THREADS=4 ./barrier.o
+
+Output:
+thread # 1
+thread # 2
+thread # 3
+thread # 0
+Outside Barrier # 2
+Hi again from thread # 2
+Outside Barrier # 1
+Hi again from thread # 1
+Outside Barrier # 3
+Hi again from thread # 3
+Outside Barrier # 0
+Hi again from thread # 0
+
+================================================================
+How #pragma omp barrier works
+================================================================
+#pragma omp barrier creates an explicit synchronisation point inside a
+parallel region. When a thread reaches the barrier, it must stop and
+wait there until every other thread in the team has also reached that
+same point. Only once ALL threads have arrived at the barrier are any
+of them permitted to continue executing the code that follows it.
+
+This is clearly visible in the output above: all four "thread # N"
+lines (printed before the barrier) appear together as a group, in
+whatever order the threads happened to reach that print statement.
+None of the "Outside Barrier" lines (printed after the barrier) appear
+until every thread has printed its "thread # N" line first - even
+though thread 0 was the last thread to reach the barrier (it printed
+last in the first group), threads 1, 2, and 3 still had to wait for it
+before any of them could print their "Outside Barrier" line. This
+confirms that the barrier enforces a strict "wait for everyone" rule:
+no thread can be ahead of any other past that point in the code.
+
+Without the barrier, threads would interleave their "thread # N" and
+"Outside Barrier # N" prints freely, with no guarantee that all
+threads had finished the first print statement before any thread
+started the second one.
