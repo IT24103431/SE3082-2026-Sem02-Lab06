@@ -1,1 +1,43 @@
+Lab 5 - Exercise 2: #pragma omp single
 
+Program: single.c
+Compiled with: gcc -fopenmp single.c -o single.o
+Run with: OMP_NUM_THREADS=4 ./single.o
+
+Output:
+thread # 1
+Inside Single # 1
+Exiting Single
+thread # 2
+thread # 3
+thread # 0
+Hi again from thread # 1
+Hi again from thread # 2
+Hi again from thread # 3
+Hi again from thread # 0
+
+================================================================
+How #pragma omp single works
+================================================================
+#pragma omp single marks a block of code that should be executed by
+exactly ONE thread in the team - whichever thread reaches that point
+first - while all other threads skip the block entirely. In this run,
+thread 1 reached the single block first, so only thread 1 executed the
+"Inside Single # 1" and "Exiting Single" print statements; threads 2,
+3, and 0 never printed those lines because they were skipped by every
+thread except the one that got there first.
+
+By default, #pragma omp single has an implicit barrier at its end:
+even though threads 2, 3, and 0 did not execute the single block's
+code, they must still wait at the end of the single construct until
+thread 1 has finished executing it, before any thread is allowed to
+continue to the following code. This is visible in the output: all
+four "Hi again from thread # N" lines only appear after thread 1 has
+completed and exited the single block - none of the other threads'
+"Hi again" lines are interleaved with or appear before thread 1's
+"Exiting Single" line.
+
+Which thread executes the single block is not deterministic - it
+depends on which thread happens to reach that point first at runtime,
+so a different thread may "win" the single block on a different run of
+the same program.
