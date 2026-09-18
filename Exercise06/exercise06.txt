@@ -1,0 +1,80 @@
+Lab 5 - Exercise 6: Strip Mining for Element-wise Array Multiplication
+
+Programs: strip_mining.c, plain_parallel.c
+Compiled with: gcc -fopenmp -O2 strip_mining.c -o strip_mining.o
+               gcc -fopenmp -O2 plain_parallel.c -o plain_parallel.o
+N = 1,000,000 (arrays of type double)
+Strip size: 8 (chosen to align with a common SIMD vector width for
+doubles on AVX-512-capable hardware; also a reasonable size for AVX2,
+which would process it as two groups of 4)
+
+Design:
+- The OUTER loop iterates over strip boundaries (0, 8, 16, ...) and is
+  parallelised across threads with #pragma omp parallel for - each
+  thread processes multiple whole strips.
+- The INNER loop iterates over the up-to-8 elements within a single
+  strip, and is marked with #pragma omp simd to hint the compiler to
+  vectorise it, processing multiple array elements per CPU instruction.
+
+================================================================
+RESULTS
+================================================================
+Strip mining:    C[100] = 10000.000000, C[999999] = 999998000001.000000
+                 (both correct)
+                 Time taken: 0.004818 seconds
+
+Plain parallel:  C[100] = 10000.000000 (correct)
+                 Time taken: 0.004787 seconds
+
+Both versions produced correct results, and timing was essentially
+identical (within measurement noise).
+
+================================================================
+VECTORISATION CHECK
+================================================================
+gcc -fopt-info-vec was used to check whether each loop was actually
+vectorised by the compiler:
+
+  plain_parallel.c: NO vectorisation message produced - GCC did NOT
+  auto-vectorise the plain loop at -O2.
+
+  strip_mining.c: "strip_mining.c:27:21: optimized: loop vectorized
+  using 16 byte vectors" - the strip's inner loop, marked with
+  #pragma omp simd, WAS successfully vectorised by the compiler.
+
+================================================================
+WHY STRIP MINING DID NOT PRODUCE A MEASURABLE SPEEDUP HERE
+================================================================
+This result is worth explaining rather than dismissing: strip mining
+did achieve its intended technical goal (genuine SIMD vectorisation of
+the inner loop, confirmed by the compiler's own vectorisation report),
+yet the two versions still ran at almost exactly the same speed.
+
+The reason is that this workload is memory-bandwidth-bound, not
+compute-bound. Each iteration does only one multiplication, but reads
+two double values (from A and B) and writes one (to C) - for
+N=1,000,000 elements, that is 24 MB of data movement, well beyond
+typical CPU cache sizes on a t2.large instance. When the bottleneck is
+how fast data can be streamed from RAM into the CPU, rather than how
+many arithmetic operations the CPU can issue per cycle, making the
+arithmetic itself faster (via SIMD) does not reduce the overall time,
+because the CPU is spending most of its time waiting for memory, not
+computing.
+
+This is an important, general lesson about performance optimisation:
+an optimisation technique (strip mining + SIMD, in this case) can be
+implemented correctly and verified to work exactly as intended at the
+instruction level, and still fail to improve real-world performance if
+it targets a resource (compute throughput) that was not actually the
+bottleneck for that specific workload (which here was memory
+bandwidth). Strip mining and SIMD vectorisation are expected to matter
+more for workloads that are compute-bound (e.g. many arithmetic
+operations per element loaded) or for array sizes small enough to fit
+in and be reused from cache, neither of which applies to this simple,
+large, single-pass element-wise multiplication.
+
+================================================================
+NOTE ON RESOURCE CLEANUP
+================================================================
+The EC2 instance was stopped after completing this exercise to avoid
+unnecessary usage of the AWS Academy lab session's compute hours.
