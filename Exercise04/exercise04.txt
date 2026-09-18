@@ -1,1 +1,73 @@
 
+Lab 5 - Exercise 4: Nested Loop Thread Distribution and collapse(2)
+
+Programs: nested_basic.c (parallel for on outer loop only),
+          nested_collapse.c (parallel for collapse(2) on both loops)
+Compiled with: gcc -fopenmp nested_basic.c -o nested_basic.o
+(similarly for nested_collapse.c)
+Run on: AWS EC2 instance (substituted for the cluster/qsub environment
+referenced in the lab sheet, since this course's qsub-based cluster
+was not available; results and behaviour are equivalent since both
+environments use the same OpenMP runtime semantics)
+
+================================================================
+BASIC VERSION (parallel for on outer loop only), 5 threads
+================================================================
+With exactly 5 threads matching the 5 values of r, each thread was
+assigned exactly one full value of r (all 10 values of k), e.g.
+thread 1 handled all of r=2 (k=1 to k=10), thread 2 handled all of
+r=3, etc. This happened to look identical to the collapse(2) output at
+5 threads purely by coincidence, since 5 outer iterations split evenly
+across 5 threads gives the same grouping as 50 total iterations split
+evenly across 5 threads.
+
+BASIC VERSION, 3 threads (uneven, more revealing):
+  Thread 0: r=1 (all 10 k) AND r=2 (all 10 k) - 20 iterations
+  Thread 1: r=3 (all 10 k) AND r=4 (all 10 k) - 20 iterations
+  Thread 2: r=5 (all 10 k) only - 10 iterations
+
+With #pragma omp parallel for on only the outer loop, OpenMP can only
+divide work at the granularity of whole r values. Each thread executes
+its assigned r value(s) completely, including the full inner k loop,
+before any other thread can touch that r value. This means a single
+value of r is NEVER split across two different threads, and load can
+be uneven if the number of outer iterations does not divide evenly by
+the number of threads (here, thread 2 got only half the work of
+threads 0 and 1).
+
+================================================================
+COLLAPSE(2) VERSION, 3 threads
+================================================================
+  Thread 0: r=1 (all k) + r=2, k=1 to k=7  (17 iterations)
+  Thread 2: r=2, k=8 to k=10 + r=4, k=5 to k=10 + r=5 (all k) (approx 17-18 iterations)
+  Thread 1: r=2, k=1-7 region + r=3 (all k) + r=4, k=1 to k=4 (approx 17-18 iterations, interleaved)
+  (exact interleaving varies slightly between runs, but each thread
+  ends up with roughly 50/3 ~ 16-17 iterations)
+
+With #pragma omp parallel for collapse(2), the two nested loops are
+merged into a single flattened iteration space of 5 x 10 = 50 total
+iterations, which OpenMP then divides among threads as one combined
+pool. Critically, this means a single value of r CAN be split across
+multiple threads - in this run, r=2's ten k-iterations were divided
+between thread 0 (k=1 to 7) and thread 2 (k=8 to 10), something the
+basic version can never do.
+
+================================================================
+KEY DIFFERENCE
+================================================================
+The basic (outer-loop-only) version distributes work in whole units
+of the outer loop - a thread either owns an entire r value or it
+doesn't, so the granularity of parallelism is limited by the outer
+loop's size (5, in this case), regardless of how many threads are
+available. This can lead to poor load balancing when the number of
+threads does not evenly divide the number of outer iterations, and it
+caps the maximum useful thread count at 5 (a 6th thread would have no
+work at all).
+
+collapse(2) removes this limitation by flattening both loops into one
+50-iteration space before dividing it among threads. This allows finer
+-grained, more even load distribution (up to 50 threads could each get
+useful work, rather than being capped at 5), and permits work from a
+single outer-loop value to be shared across multiple threads when
+needed for balance - as demonstrated by r=2 being split between two
+threads in the collapse(2) run above.
