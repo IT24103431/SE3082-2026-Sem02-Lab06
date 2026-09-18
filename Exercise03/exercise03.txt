@@ -1,1 +1,46 @@
+Lab 5 - Exercise 3: #pragma omp master
 
+Program: master.c
+Compiled with: gcc -fopenmp master.c -o master.o
+Run with: OMP_NUM_THREADS=4 ./master.o
+
+Output:
+thread # 1
+Hi again from thread # 1
+thread # 2
+Hi again from thread # 2
+thread # 3
+Hi again from thread # 3
+thread # 0
+Inside Master # 0
+Exiting Master
+Hi again from thread # 0
+
+================================================================
+How #pragma omp master works
+================================================================
+#pragma omp master marks a block of code that is executed only by the
+master thread of the team - which is always thread 0 specifically, not
+"whichever thread arrives first" (unlike #pragma omp single). All
+other threads simply skip the master block entirely and continue
+straight to the code after it, with NO implicit barrier or wait.
+
+This is clearly visible in the output: threads 1, 2, and 3 each
+printed their "thread # N" line and immediately continued to their
+"Hi again from thread # N" line, completing entirely before thread 0
+even reached its first print statement. There was no synchronisation
+forcing them to wait for thread 0 to execute the master block - they
+simply proceeded independently. Only thread 0 executed the
+"Inside Master # 0" / "Exiting Master" lines, since it is the
+designated master thread.
+
+This is the key difference from Exercise 2 (single): single lets any
+thread execute the block (whichever gets there first) and forces all
+other threads to wait at an implicit barrier until it finishes; master
+always uses thread 0 specifically, and does not make any other thread
+wait at all. This makes master useful when you specifically need
+thread 0 to do something (e.g. because it holds specific setup data),
+and you don't need the other threads to pause for it - whereas single
+is useful when you need exactly one thread (any thread) to do
+something, and the rest of the team must wait for that result before
+proceeding.
